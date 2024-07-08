@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail-daemonset
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail-serviceaccount
+      tolerations:
+        - key: "Monitoring"
+          operator: "Equal"
+          value: "Yes"
+          effect: "NoSchedule"
+        - key: "karpenter"
+          operator: "Equal"
+          value: "Yes"
+          effect: "NoSchedule"
+        - key: "argocd"
+          operator: "Equal"
+          value: "Yes"
+          effect: "NoSchedule"
+        - key: "nodetype"
+          operator: "Equal"
+          value: "crontab"
+          effect: "NoSchedule"
+      containers:
+        - name: promtail
+          image: grafana/promtail:2.7.2
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+          ports:
+            - containerPort: 9080
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/promtail
+              #subPath: promtail.yaml
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: varlog
+              mountPath: /var/log
+            - name: app-logs
+              mountPath: /app/logs
+      volumes:
+        - name: config-volume
+          configMap:
+            name: promtail-config
+            items:
+              - key: promtail.yaml
+                path: promtail.yaml
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: app-logs
+          emptyDir: {}

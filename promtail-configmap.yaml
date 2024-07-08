@@ -1,0 +1,126 @@
+apiVersion: v1
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+      log_level: debug
+
+    clients:
+      - url: http://10.13.0.191:3100/loki/api/v1/push
+        # tenant_id: 1  # Uncomment if using multitenancy
+
+    positions:
+      filename: /tmp/positions.yaml
+
+    target_config:
+      sync_period: 10s
+
+    scrape_configs:
+      - job_name: plaiground-api
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: plaiground_api_logs
+              __path__: /var/log/containers/plaiground-api*.log
+        pipeline_stages:
+          - match:
+              selector: '{job="plaiground_api_logs"}'
+              stages:
+                - regex:
+                    expression: "^(?P<timestamp>\\S+)\\s+(?P<message>.*)$"
+          - output:
+              source: message
+        relabel_configs:
+          - source_labels: ['__path__']
+            regex: '/var/log/.*log'
+            action: keep
+
+      - job_name: plaiground-website
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: plaiground_website_logs
+              __path__: /var/log/containers/plaiground-website*.log
+        pipeline_stages:
+          - match:
+              selector: '{job="plaiground_website_logs"}'
+              stages:
+                - regex:
+                    expression: "^(?P<timestamp>\\S+)\\s+(?P<message>.*)$"
+          - output:
+              source: message
+        relabel_configs:
+          - source_labels: ['__path__']
+            regex: '/var/log/.*log'
+            action: keep
+
+      - job_name: plaiground-frontend
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: plaiground_frontend_logs
+              __path__: /var/log/containers/plaiground-fe*.log
+        pipeline_stages:
+          - match:
+              selector: '{job="plaiground_frontend_logs"}'
+              stages:
+                - regex:
+                    expression: "^(?P<timestamp>\\S+)\\s+(?P<message>.*)$"
+          - output:
+              source: message
+        relabel_configs:
+          - source_labels: ['__path__']
+            regex: '/var/log/.*log'
+            action: keep
+
+      - job_name: pod-logs
+        kubernetes_sd_configs:
+          - namespaces:
+              names:
+                - prod
+                - monitoring
+            role: pod
+        pipeline_stages:
+          - cri: {}
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: __host__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_pod_name
+            target_label: job
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: pod
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: monitoring
